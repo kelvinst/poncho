@@ -119,4 +119,36 @@ defmodule Poncho do
       _ -> %{}
     end
   end
+
+  def affected_projects(sha, base_dir \\ ".", git_root \\ :base_dir, master \\ nil) do
+    sha
+    |> changed_projects(base_dir, git_root)
+    |> Stream.map(&reverse_dep_tree!(&1, base_dir, master))
+    |> Enum.uniq()
+  end
+
+  defp flatten_tree([], acc), do: acc
+
+  def changed_projects(sha, base_dir \\ ".", git_root \\ :base_dir) do
+    base_dir
+    |> Git.new()
+    |> Git.diff_tree!(["--no-commit-id", "--name-only", "-r", sha])
+    |> String.split("\n")
+    |> handle_git_root(base_dir, git_root)
+    |> Stream.map(&List.first(String.split(&1, "/")))
+    |> Stream.map(&String.slice(&1, 0, String.length(&1)))
+    |> Stream.filter(&File.dir?(Path.join(base_dir, &1)))
+    |> Stream.map(&String.to_atom/1)
+    |> Enum.uniq()
+  end
+
+  defp handle_git_root(lines, _base_dir, :base_dir), do: lines
+
+  defp handle_git_root(lines, base_dir, git_root) do
+    subdir = String.replace(Path.expand(base_dir), Path.expand(git_root) <> "/", "")
+
+    lines
+    |> Stream.filter(&String.starts_with?(&1, "#{subdir}/"))
+    |> Stream.map(&String.replace(&1, "#{subdir}/", ""))
+  end
 end
